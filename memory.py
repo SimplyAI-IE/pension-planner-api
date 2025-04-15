@@ -14,6 +14,9 @@ def save_user_profile(user_id, field, value):
         profile = UserProfile(user_id=user_id)
         db.add(profile)
 
-    setattr(profile, field, value)
+    # Only update if value is not None and not blank
+    if value:
+        setattr(profile, field, value)
+
     db.commit()
     db.close()
