@@ -31,7 +31,19 @@ def format_user_context(profile):
 def get_gpt_response(user_input, user_id):
     profile = get_user_profile(user_id)
 
-    # Personal greeting logic
+    # Handle init message directly, without GPT
+    if user_input.strip() == "__INIT__":
+        if profile:
+            name_guess = user_id.split("-")[0].capitalize()
+            summary = format_user_context(profile)
+            return f"Hi {name_guess}, good to see you again. Here's what I remember about your situation: {summary}"
+        else:
+            return (
+                "Hi, glad to have time to chat with you. How can I help with your pension?"
+                "\n\nTo start, could you tell me if you're based in the UK or Ireland?"
+            )
+
+    # Ongoing chat logic
     if profile:
         name_guess = user_id.split("-")[0].capitalize()
         greeting = f"Hi {name_guess}, good to see you again."
