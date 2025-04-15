@@ -18,25 +18,26 @@ Offer clear, jargon-free guidance on saving, investing, pension options (e.g., S
 Avoid assumptions. Be transparent, realistic, and prioritize long-term outcomes aligned with user goals.
 """
 
-def get_gpt_response(user_input, user_id):
-    memory_context = get_user_profile(user_id)
+def format_user_context(profile):
+    parts = []
+    if profile.region:
+        parts.append(f"Region: {profile.region}")
+    if profile.age:
+        parts.append(f"Age: {profile.age}")
+    if profile.income:
+        parts.append(f"Income: £{profile.income}")
+    if profile.retirement_age:
+        parts.append(f"Retirement goal: {profile.retirement_age}")
+    if profile.risk_profile:
+        parts.append(f"Risk tolerance: {profile.risk_profile}")
+    return " ".join(parts)
 
-    user_context_text = ""
-    if memory_context:
-        fields = {
-            "region": "Region",
-            "age": "Age",
-            "income": "Income",
-            "retirement_age": "Retirement goal",
-            "risk_profile": "Risk tolerance"
-        }
-        for field, label in fields.items():
-            value = getattr(memory_context, field)
-            if value:
-                user_context_text += f"{label}: {value}. "
+def get_gpt_response(user_input, user_id):
+    profile = get_user_profile(user_id)
+    user_context = format_user_context(profile) if profile else ""
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + user_context_text.strip()},
+        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + user_context.strip()},
         {"role": "user", "content": user_input}
     ]
 
