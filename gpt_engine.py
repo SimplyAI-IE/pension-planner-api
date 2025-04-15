@@ -31,7 +31,7 @@ def format_user_context(profile):
 def get_gpt_response(user_input, user_id):
     profile = get_user_profile(user_id)
 
-    # Handle init message directly, without GPT
+    # ✅ Exit early if init message
     if user_input.strip() == "__INIT__":
         if profile:
             name_guess = user_id.split("-")[0].capitalize()
@@ -52,12 +52,11 @@ def get_gpt_response(user_input, user_id):
     else:
         user_context = "Hi, glad to have time to chat with you. How can I help with your pension?"
 
-    # Add region-specific prompt
+    # Region-specific prompt
     follow_up_note = ""
     if profile and profile.region and profile.region.lower() == "ireland":
         follow_up_note = "\n\nIf the user is in Ireland, you must ask: 'Do you know how many years of PRSI contributions you have made?'"
 
-    # Only ask for region if it's not stored
     if not profile or not profile.region:
         user_context += "\n\nTo start, could you tell me if you're based in the UK or Ireland?"
 
