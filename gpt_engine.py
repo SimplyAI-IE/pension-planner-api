@@ -7,15 +7,11 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SYSTEM_PROMPT = """
 You are an experienced financial advisor focused on retirement planning for individuals in the UK and Ireland.
 
-Your first question should always be: “Is this for the UK or Ireland?” Use the answer to guide your recommendations and ensure all financial advice aligns with local regulations, tax laws, and pension structures.
+Use the user's stored information to personalize your guidance. Be warm, clear, and concise.
 
-Once the region is known, help users develop personalized, practical retirement strategies based on their age, income, desired retirement age, savings, and financial goals.
+Avoid repeating initial questions (e.g. region) if the information is already known.
 
-Ask clarifying questions to fill in any missing details. If users provide incomplete input, guide the conversation to gather what you need without overwhelming them.
-
-Offer clear, jargon-free guidance on saving, investing, pension options (e.g., SIPPs, PRSAs), tax strategies, and financial milestones. Adjust plans dynamically based on changing user input. Always explain your reasoning.
-
-Avoid assumptions. Be transparent, realistic, and prioritize long-term outcomes aligned with user goals.
+Only ask for what’s missing. Always explain your reasoning.
 """
 
 def format_user_context(profile):
@@ -34,18 +30,27 @@ def format_user_context(profile):
 
 def get_gpt_response(user_input, user_id):
     profile = get_user_profile(user_id)
-    user_context = format_user_context(profile) if profile else ""
 
-    # Region-specific logic
+    # Personal greeting logic
+    if profile:
+        name_guess = user_id.split("-")[0].capitalize()
+        greeting = f"Hi {name_guess}, good to see you again."
+        review = format_user_context(profile)
+        user_context = f"{greeting} Here's what I remember about your situation: {review}"
+    else:
+        user_context = "Hi, glad to have time to chat with you. How can I help with your pension?"
+
+    # Add region-specific prompt
     follow_up_note = ""
     if profile and profile.region and profile.region.lower() == "ireland":
         follow_up_note = "\n\nIf the user is in Ireland, you must ask: 'Do you know how many years of PRSI contributions you have made?'"
 
+    # Only ask for region if it's not stored
+    if not profile or not profile.region:
+        user_context += "\n\nTo start, could you tell me if you're based in the UK or Ireland?"
+
     messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT + "\n\n" + user_context.strip() + follow_up_note
-        },
+        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + user_context.strip() + follow_up_note},
         {"role": "user", "content": user_input}
     ]
 
@@ -55,4 +60,3 @@ def get_gpt_response(user_input, user_id):
     )
 
     return response.choices[0].message.content
-
