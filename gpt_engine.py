@@ -36,8 +36,16 @@ def get_gpt_response(user_input, user_id):
     profile = get_user_profile(user_id)
     user_context = format_user_context(profile) if profile else ""
 
+    # Region-specific logic
+    follow_up_note = ""
+    if profile and profile.region and profile.region.lower() == "ireland":
+        follow_up_note = "\n\nIf the user is in Ireland, you must ask: 'Do you know how many years of PRSI contributions you have made?'"
+
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + user_context.strip()},
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT + "\n\n" + user_context.strip() + follow_up_note
+        },
         {"role": "user", "content": user_input}
     ]
 
@@ -47,3 +55,4 @@ def get_gpt_response(user_input, user_id):
     )
 
     return response.choices[0].message.content
+
