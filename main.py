@@ -4,12 +4,22 @@ from dotenv import load_dotenv
 from gpt_engine import get_gpt_response
 from memory import save_user_profile
 from models import init_db
+from fastapi.middleware.cors import CORSMiddleware
 import re
 
 load_dotenv()
 app = FastAPI()
 
-# Create DB tables on startup
+# Allow CORS so frontend can connect
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to specific domain later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Create DB table(s)
 init_db()
 
 class ChatRequest(BaseModel):
