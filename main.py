@@ -5,6 +5,8 @@ from gpt_engine import get_gpt_response
 from memory import save_user_profile
 from models import init_db
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import HTTPException
+from models import User, SessionLocal
 import re
 
 load_dotenv()
@@ -57,3 +59,20 @@ def extract_user_data(user_id, msg):
             save_user_profile(user_id, "risk_profile", "High")
         elif "medium" in msg.lower():
             save_user_profile(user_id, "risk_profile", "Medium")
+            
+@app.post("/auth/google")
+async def auth_google(user_data: dict):
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_data["sub"]).first()
+
+    if not user:
+        user = User(
+            id=user_data["sub"],
+            name=user_data["name"],
+            email=user_data["email"]
+        )
+        db.add(user)
+        db.commit()
+
+    db.close()
+    return {"status": "ok", "user_id": user_data["sub"]}
