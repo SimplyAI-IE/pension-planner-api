@@ -3,10 +3,14 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from gpt_engine import get_gpt_response
 from memory import save_user_profile
+from models import init_db
 import re
 
 load_dotenv()
 app = FastAPI()
+
+# Create DB tables on startup
+init_db()
 
 class ChatRequest(BaseModel):
     user_id: str
@@ -14,17 +18,11 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    # Try to extract fields from user message
     extract_user_data(req.user_id, req.message)
-
-    # Get GPT response with memory context
     reply = get_gpt_response(req.message, req.user_id)
-
     return {"response": reply}
 
-
 def extract_user_data(user_id, msg):
-    # Super basic regex-based field extraction
     if "ireland" in msg.lower():
         save_user_profile(user_id, "region", "Ireland")
     elif "uk" in msg.lower():
