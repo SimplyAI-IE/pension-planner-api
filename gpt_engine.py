@@ -1,8 +1,8 @@
-import openai
-import os
+from openai import OpenAI
 from memory import get_user_profile
+import os
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SYSTEM_PROMPT = """
 You are an experienced financial advisor focused on retirement planning for individuals in the UK and Ireland.
@@ -40,9 +40,9 @@ def get_gpt_response(user_input, user_id):
         {"role": "user", "content": user_input}
     ]
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=messages
     )
 
-    return response['choices'][0]['message']['content']
+    return response.choices[0].message.content
