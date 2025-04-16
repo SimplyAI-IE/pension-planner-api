@@ -166,4 +166,28 @@ async def auth_google(user_data: dict):
 async def root():
     return {"message": "Pension Planner API is running"}
 
+from models import ChatHistory
+
+@app.post("/chat/forget")
+async def forget_chat_history(request: Request):
+    data = await request.json()
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Missing user_id")
+
+    db = SessionLocal()
+    try:
+        db.query(ChatHistory).filter(ChatHistory.user_id == user_id).delete()
+        db.commit()
+        logger.info(f"Deleted chat history for user_id: {user_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting chat history for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear history")
+    finally:
+        db.close()
+
+    return {"status": "ok", "message": "Chat history cleared."}
+
+
 # --- End of main.py ---

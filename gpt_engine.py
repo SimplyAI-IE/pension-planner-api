@@ -128,7 +128,7 @@ def get_gpt_response(user_input, user_id):
         reply = "I'm sorry, but I encountered a technical difficulty while processing your request. Please try again in a few moments."
 
 
-    from memory import save_chat_message
+    # Don't save here — handled in main.py
 
     # Save current exchange to history
     save_chat_message(user_id, "user", user_input)
