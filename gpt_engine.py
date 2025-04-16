@@ -99,11 +99,11 @@ def get_gpt_response(user_input, user_id):
     ]
 
     # Add historical messages (if any)
-for msg in history:
-    if msg["role"] in ['user', 'assistant']:
-        messages.append(msg)
-    else:
-        logger.warning(f"Skipping history message with invalid role '{msg['role']}' for user_id: {user_id}")
+    for msg in history:
+        if msg["role"] in ['user', 'assistant']:
+            messages.append(msg)
+        else:
+            logger.warning(f"Skipping history message with invalid role '{msg['role']}' for user_id: {user_id}")
 
 
 
