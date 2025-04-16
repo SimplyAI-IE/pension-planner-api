@@ -68,5 +68,6 @@ def get_chat_history(user_id, limit=10):
         history = [] # Return empty list on error
     finally:
         db.close()
-    return history[::-1] # Reverse to get chronological order (oldest first)
+    return [{"role": m.role, "content": m.content} for m in history[::-1]]
+# Reverse to get chronological order (oldest first)
 # --- End of memory.py ---
