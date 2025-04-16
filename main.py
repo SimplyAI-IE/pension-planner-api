@@ -40,6 +40,8 @@ logger.info("Database initialized.")
 class ChatRequest(BaseModel):
     user_id: str
     message: str
+    tone: str = ""  # Optional tone setting
+
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
@@ -64,7 +66,7 @@ async def chat(req: ChatRequest):
     # Get the reply from the AI (which now uses history)
     logger.info(f"Getting GPT response for user_id: {user_id}")
     try:
-        reply = get_gpt_response(user_message, user_id)
+        reply = get_gpt_response(user_message, user_id, tone=req.tone)
         logger.info(f"GPT response generated successfully for user_id: {user_id}")
     except Exception as e:
         logger.error(f"Error getting GPT response for user {user_id}: {e}", exc_info=True)

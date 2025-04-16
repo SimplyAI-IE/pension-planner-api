@@ -74,7 +74,7 @@ def format_user_context(profile):
     # Return a clear summary string
     return "User Profile Summary: " + "; ".join(parts)
 
-def get_gpt_response(user_input, user_id):
+def get_gpt_response(user_input, user_id, tone=""):
     """Generates a response from OpenAI GPT based on user input, profile, and chat history."""
     logger.info(f"get_gpt_response called for user_id: {user_id}")
     profile = get_user_profile(user_id)
@@ -109,10 +109,23 @@ def get_gpt_response(user_input, user_id):
     profile_summary = format_user_context(profile)
     logger.debug(f"Formatted profile summary: {profile_summary}")
 
+    tone_instruction = ""
+    if tone == "7":
+        tone_instruction = "Use very simple language, short sentences, and relatable examples a 7-year-old could understand."
+    elif tone == "14":
+        tone_instruction = "Explain ideas like you're talking to a 14-year-old. Be clear and concrete, avoid jargon."
+    elif tone == "adult":
+        tone_instruction = "Use plain English suitable for an average adult. Assume no special knowledge."
+    elif tone == "pro":
+        tone_instruction = "Use financial terminology and industry language for a professional audience."
+    elif tone == "genius":
+        tone_instruction = "Use technical depth and precision appropriate for a professor. Do not simplify."
+
+    system_message = SYSTEM_PROMPT + "\n\n" + tone_instruction + "\n\n" + profile_summary
+
+
     # 3. Construct messages for OpenAI API
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + profile_summary}
-    ]
+    messages = [{"role": "system", "content": system_message}]
 
     # Add historical messages (if any)
     for msg in history:
