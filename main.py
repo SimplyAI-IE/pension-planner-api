@@ -6,7 +6,7 @@ from gpt_engine import get_gpt_response
 from memory import save_user_profile, save_chat_message # Added save_chat_message
 from models import init_db, User, SessionLocal
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Request
 import re
 import logging # Added logging
 
