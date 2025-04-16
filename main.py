@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from gpt_engine import get_gpt_response
 from memory import save_user_profile, save_chat_message # Added save_chat_message
 from models import init_db, User, SessionLocal
+from models import UserProfile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -227,6 +228,7 @@ async def forget_chat_history(request: Request):
     db = SessionLocal()
     try:
         db.query(ChatHistory).filter(ChatHistory.user_id == user_id).delete()
+        db.query(UserProfile).filter(UserProfile.user_id == user_id).delete()
         db.commit()
         logger.info(f"Deleted chat history for user_id: {user_id}")
     except Exception as e:
