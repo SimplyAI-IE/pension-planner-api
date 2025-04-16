@@ -1,5 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, create_engine
+# --- models.py ---
+from sqlalchemy import Column, Integer, String, DateTime, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.sql import func
 from datetime import datetime
 
 Base = declarative_base()
@@ -22,8 +24,21 @@ class User(Base):
     email = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# New table to store conversation history
+class ChatHistory(Base):
+    __tablename__ = 'chat_history'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, index=True)
+    role = Column(String) # 'user' or 'assistant'
+    content = Column(Text) # Use Text for potentially longer messages
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+
 engine = create_engine("sqlite:///memory.db", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
+    # Ensure all tables, including the new ChatHistory, are created
     Base.metadata.create_all(bind=engine)
+# --- End of models.py ---
