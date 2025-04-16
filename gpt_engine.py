@@ -1,6 +1,7 @@
 # --- gpt_engine.py ---
 from openai import OpenAI
 from memory import get_user_profile, get_chat_history # Added get_chat_history
+from models import SessionLocal, User
 import os
 import logging # Added logging
 
@@ -64,9 +65,11 @@ def get_gpt_response(user_input, user_id):
     """Generates a response from OpenAI GPT based on user input, profile, and chat history."""
     logger.info(f"get_gpt_response called for user_id: {user_id}")
     profile = get_user_profile(user_id)
-    # Try getting name from profile if available, else use fallback
-    name = profile.name if profile and hasattr(profile, 'name') and profile.name else user_id.split("-")[0].capitalize()
-
+    # Load full user details (for name)
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    db.close()
+    name = user.name if user and user.name else "there"
 
     # Handle initial message - no history retrieval needed here
     if user_input.strip() == "__INIT__":
