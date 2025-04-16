@@ -7,6 +7,11 @@ from memory import save_user_profile, save_chat_message # Added save_chat_messag
 from models import init_db, User, SessionLocal
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from weasyprint import HTML
+from io import BytesIO
+from models import ChatHistory
+from memory import get_user_profile
 import re
 import logging # Added logging
 
@@ -167,6 +172,50 @@ async def root():
     return {"message": "Pension Planner API is running"}
 
 from models import ChatHistory
+
+@app.get("/export-pdf")
+async def export_pdf(user_id: str):
+    profile = get_user_profile(user_id)
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="No profile found.")
+
+    db = SessionLocal()
+    messages = (
+        db.query(ChatHistory)
+        .filter(ChatHistory.user_id == user_id)
+        .order_by(ChatHistory.timestamp)
+        .all()
+    )
+    db.close()
+
+    # Build content
+    profile_text = f"""
+    <h1>Pension Plan Summary</h1>
+    <h2>User Info</h2>
+    <ul>
+      <li>Region: {profile.region or "—"}</li>
+      <li>Age: {profile.age or "—"}</li>
+      <li>Income: {f"£{profile.income:,}" if profile.income else "—"}</li>
+      <li>Retirement Age: {profile.retirement_age or "—"}</li>
+      <li>Risk Profile: {profile.risk_profile or "—"}</li>
+    </ul>
+    """
+
+    chat_log = "<h2>Chat History</h2><ul>"
+    for m in messages:
+        role = "You" if m.role == "user" else "Pension Guru"
+        chat_log += f"<li><strong>{role}:</strong> {m.content}</li>"
+    chat_log += "</ul>"
+
+    html = HTML(string=profile_text + chat_log)
+    pdf_buffer = BytesIO()
+    html.write_pdf(pdf_buffer)
+    pdf_buffer.seek(0)
+
+    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={
+        "Content-Disposition": f"attachment; filename=retirement_plan_{user_id}.pdf"
+    })
 
 @app.post("/chat/forget")
 async def forget_chat_history(request: Request):
