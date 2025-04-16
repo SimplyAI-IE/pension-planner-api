@@ -130,10 +130,6 @@ def get_gpt_response(user_input, user_id):
 
     # Don't save here — handled in main.py
 
-    # Save current exchange to history
-    save_chat_message(user_id, "user", user_input)
-    save_chat_message(user_id, "assistant", reply)
-
 
     return reply
 # --- End of gpt_engine.py ---
