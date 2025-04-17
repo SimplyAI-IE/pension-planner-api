@@ -232,15 +232,16 @@ async def forget_chat_history(request: Request):
         db.query(ChatHistory).filter(ChatHistory.user_id == user_id).delete()
         db.query(UserProfile).filter(UserProfile.user_id == user_id).delete()
         db.commit()
-        logger.info(f"Deleted chat history for user_id: {user_id}")
+        logger.info(f"Deleted chat history and profile for user_id: {user_id}")
     except Exception as e:
         db.rollback()
-        logger.error(f"Error deleting chat history for user {user_id}: {e}")
+        logger.error(f"Error deleting data for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to clear history")
     finally:
         db.close()
 
-    return {"status": "ok", "message": "Chat history cleared."}
+    return {"status": "ok", "message": "Chat history and profile cleared."}
+
 
 
 # --- End of main.py ---
