@@ -1,5 +1,5 @@
 # --- models.py ---
-from sqlalchemy import Column, Integer, String, DateTime, Text, create_engine
+from sqlalchemy import Column, Integer, String, DateTime, Text, create_engine, Boolean # Add Boolean potentially
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -16,6 +16,7 @@ class UserProfile(Base):
     retirement_age = Column(Integer)
     risk_profile = Column(String)
     prsi_years = Column(Integer) 
+    pending_action = Column(String, nullable=True) # To store state like 'offer_tips'
 
 class User(Base):
     __tablename__ = 'users'
