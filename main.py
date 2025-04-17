@@ -60,50 +60,55 @@ async def chat(req: ChatRequest):
         reply = get_gpt_response(user_message, user_id, tone=req.tone)
         return {"response": reply}
 
+    # --- Handle Empty Input ---
     if not user_message:
         logger.warning(f"Received empty message from user_id: {user_id}")
+        profile = get_user_profile(user_id)
+        history = get_chat_history(user_id, limit=2)
+        if (profile and hasattr(profile, 'prsi_years') and profile.prsi_years is not None and
+                history and len(history) >= 2 and "how many years of prsi contributions" in history[-2]["content"].lower()):
+            logger.info(f"Empty input after PRSI question for user {user_id}. Using profile PRSI years: {profile.prsi_years}")
+            reply = get_gpt_response(f"Calculate pension for {profile.prsi_years} PRSI years", user_id, tone=req.tone)
+            save_chat_message(user_id, 'assistant', reply)
+            return {"response": reply}
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     # --- State Handling Logic ---
     profile = get_user_profile(user_id)
     give_tips_directly = False
-    # Check if profile exists and has the pending_action attribute
     if profile and hasattr(profile, 'pending_action') and profile.pending_action == "offer_tips":
         logger.info(f"User {user_id} has pending_action 'offer_tips'. Checking response: '{user_message_lower}'")
-        # Clear the pending action immediately after checking it
         save_user_profile(user_id, "pending_action", None)
         logger.info(f"Cleared pending_action for user {user_id}")
-
         if user_message_lower in affirmative_responses:
             logger.info(f"User {user_id} confirmed wanting tips. Handling directly.")
             give_tips_directly = True
         else:
             logger.info(f"User {user_id} did not give affirmative response to tips offer. Proceeding normally.")
     else:
-        # Fallback: Check chat history for recent tips offer
-        history = get_chat_history(user_id, limit=2)  # Check last 2 messages (bot's offer + user's response)
+        history = get_chat_history(user_id, limit=2)
         offer_keywords = [
             "would you like tips",
             "improve your pension?",
-            "boost your pension",  # Broadened to catch variations
+            "boost your pension",
             "increase your pension?"
         ]
         if (history and len(history) >= 2 and
-            any(keyword in history[-2]["content"].lower() for keyword in offer_keywords) and
-            user_message_lower in affirmative_responses):
+                any(keyword in history[-2]["content"].lower() for keyword in offer_keywords) and
+                user_message_lower in affirmative_responses):
             logger.info(f"Detected affirmative response to tips offer in history for user {user_id}")
             give_tips_directly = True
 
-    # --- Direct Tips Response (if triggered) ---
+    # --- Direct Tips Response ---
     if give_tips_directly:
         reply = ""
         try:
             logger.info(f"Generating direct tips response for user {user_id}")
             reply = (
                 "Great! Here are a few common ways people in Ireland can look into boosting their State Pension:\n\n"
-                "1.  **Keep Contributing:** Working and paying PRSI for the full 40 years generally leads to the maximum pension.\n"
-                "2.  **Check for Gaps & Voluntary Contributions:** If you have gaps in your record (e.g., time abroad or not working), see if you're eligible to make voluntary contributions to fill them. You can check this on MyWelfare.ie.\n"
-                "3.  **Look into Credits:** Certain periods, like time spent caring for children or incapacitated individuals (HomeCaring Periods), or receiving some social welfare payments, might entitle you to credits that count towards your pension.\n\n"
+                "1. **Keep Contributing**: Working and paying PRSI for the full 40 years generally leads to the maximum pension.\n"
+                "2. **Check for Gaps & Voluntary Contributions**: If you have gaps in your record (e.g., time abroad or not working), see if you're eligible to make voluntary contributions to fill them. You can check this on MyWelfare.ie.\n"
+                "3. **Look into Credits**: Certain periods, like time spent caring for children or incapacitated individuals (HomeCaring Periods), or receiving some social welfare payments, might entitle you to credits that count towards your pension.\n\n"
                 "Does that make sense? It's always best to check your personal record on MyWelfare.ie or consult with Citizens Information or a financial advisor for advice tailored to you."
             )
             logger.info(f"Generated predefined tips for user {user_id}")
@@ -111,51 +116,37 @@ async def chat(req: ChatRequest):
             logger.error(f"Error generating tips directly for user {user_id}: {e}", exc_info=True)
             reply = "Okay, I can definitely give you tips. Generally, working longer, making voluntary contributions if eligible, or checking for credits can help boost your State Pension. Checking MyWelfare.ie is a good starting point."
 
-        # Save the user message ("sure") and the direct tips reply
         save_chat_message(user_id, 'user', user_message)
         if reply:
             save_chat_message(user_id, 'assistant', reply)
         return {"response": reply}
 
-    # --- Standard Chat Flow (if not handling tips directly) ---
+    # --- Standard Chat Flow ---
     logger.info(f"Proceeding with standard chat flow for user {user_id}")
-
-    # Extract data (only if not a special command/state handled above)
     try:
         extract_user_data(user_id, user_message)
         profile = get_user_profile(user_id)
     except Exception as e:
         logger.error(f"Error extracting data for user {user_id}: {e}", exc_info=True)
 
-    # Get the reply from the AI
     reply = ""
     try:
         reply = get_gpt_response(user_message, user_id, tone=req.tone)
         logger.info(f"GPT response generated successfully for user_id: {user_id}")
     except Exception as e:
-        logger.error(f"Error getting GPT response for user {user_id}: {e}", exc_info=True)
+        logger.error(f"Error getting GPT response for user_id: {user_id}: {e}", exc_info=True)
         reply = "I'm sorry, I encountered a technical issue trying to process that. Could you try rephrasing?"
 
-    # Save user message and assistant reply to history
     save_chat_message(user_id, 'user', user_message)
     if reply:
         save_chat_message(user_id, 'assistant', reply)
 
     # --- State Setting Logic ---
-    # Check if the *newly generated* reply offers tips, set pending_action if so
     if profile and hasattr(profile, 'pending_action'):
-        # Updated offer_keywords for better detection
-        offer_keywords = [
-            "would you like tips",
-            "improve your pension?",
-            "boost your pension",  # Broadened to catch variations
-            "increase your pension?"
-        ]
-        # Alternative: Use regex for more flexible matching
         offer_patterns = [
             r"would you like tips",
             r"improve your pension\?",
-            r"boost your pension.*\?",  # Match variations like "boost your pension further?"
+            r"boost your pension.*\?",
             r"increase your pension\?"
         ]
         reply_lower = reply.lower() if reply else ""
@@ -172,17 +163,17 @@ def extract_user_data(user_id, msg):
     msg_lower = msg.lower()
     profile_updated = False
 
-    # Region Extraction
-    if "ireland" in msg_lower:
-        save_user_profile(user_id, "region", "Ireland")
-        logger.debug(f"Saved region 'Ireland' for user_id: {user_id}")
-        profile_updated = True
-    elif "uk" in msg_lower or "united kingdom" in msg_lower:
-        save_user_profile(user_id, "region", "UK")
-        logger.debug(f"Saved region 'UK' for user_id: {user_id}")
-        profile_updated = True
+    profile = get_user_profile(user_id)
+    if not profile or not profile.region:
+        if "ireland" in msg_lower:
+            save_user_profile(user_id, "region", "Ireland")
+            logger.debug(f"Saved region 'Ireland' for user_id: {user_id}")
+            profile_updated = True
+        elif "uk" in msg_lower or "united kingdom" in msg_lower:
+            save_user_profile(user_id, "region", "UK")
+            logger.debug(f"Saved region 'UK' for user_id: {user_id}")
+            profile_updated = True
 
-    # Age Extraction
     age_match = re.search(r"\b(\d{1,2})\s*(?:years?)?\s*old\b", msg_lower)
     if age_match:
         age = int(age_match.group(1))
@@ -191,7 +182,6 @@ def extract_user_data(user_id, msg):
             logger.debug(f"Saved age '{age}' for user_id: {user_id}")
             profile_updated = True
 
-    # Income Extraction
     income_match = re.search(r"\b(?:€|£)\s?(\d{1,3}(?:,\d{3})*|\d+)\s?([kK]?)\b", msg.replace(",", ""))
     if income_match:
         income_val = int(income_match.group(1))
@@ -201,7 +191,6 @@ def extract_user_data(user_id, msg):
         logger.debug(f"Saved income '{income_val}' for user_id: {user_id}")
         profile_updated = True
 
-    # Retirement Age Extraction
     retirement_match = re.search(r"\b(?:retire|retirement)\b.*?\b(\d{2})\b", msg_lower)
     if retirement_match:
         ret_age = int(retirement_match.group(1))
@@ -210,7 +199,6 @@ def extract_user_data(user_id, msg):
             logger.debug(f"Saved retirement age '{ret_age}' for user_id: {user_id}")
             profile_updated = True
 
-    # Risk Profile Extraction
     if "risk" in msg_lower:
         if "low" in msg_lower:
             save_user_profile(user_id, "risk_profile", "Low")
@@ -225,22 +213,23 @@ def extract_user_data(user_id, msg):
             logger.debug(f"Saved risk profile 'Medium' for user_id: {user_id}")
             profile_updated = True
 
-    # PRSI Contributions Extraction
     prsi_match = re.search(r"(\d{1,2})\s+(?:years?|yrs?)\s+(?:of\s+)?(?:prsi|contributions?)", msg_lower)
     if prsi_match:
         prsi_years = int(prsi_match.group(1))
         save_user_profile(user_id, "prsi_years", prsi_years)
         logger.debug(f"Saved PRSI years '{prsi_years}' from detailed message for user_id: {user_id}")
         profile_updated = True
-    elif re.fullmatch(r"\d{1,2}", msg.strip()):
+    elif re.fullmatch(r"\s*\d{1,2}\s*", msg):  # Handle whitespace
         potential_years = int(msg.strip())
         if 0 <= potential_years <= 60:
             save_user_profile(user_id, "prsi_years", potential_years)
             logger.debug(f"Saved PRSI years '{potential_years}' from simple number reply for user_id: {user_id}")
             profile_updated = True
+        else:
+            logger.warning(f"Invalid PRSI years '{potential_years}' for user_id: {user_id}")
 
     if profile_updated:
-        logger.info(f"Profile data potentially updated for user_id: {user_id}")
+        logger.info(f"Profile data updated for user_id: {user_id}")
 
 @app.post("/auth/google")
 async def auth_google(user_data: dict):
