@@ -137,12 +137,34 @@ def extract_user_data(user_id, msg):
             save_user_profile(user_id, "risk_profile", "Medium")
             logger.debug(f"Saved risk profile 'Medium' for user_id: {user_id}")
 
-    # PRSI Contributions Extraction (e.g., "12 years of PRSI")
+    # Existing PRSI regex:
     prsi_match = re.search(r"(\d{1,2})\s+(?:years?|yrs?)\s+(?:of\s+)?(?:prsi|contributions?)", msg_lower)
     if prsi_match:
         prsi_years = int(prsi_match.group(1))
-        save_user_profile(user_id, "prsi_years", prsi_years)
-        logger.debug(f"Saved PRSI years '{prsi_years}' for user_id: {user_id}")
+        # Check if 'prsi_years' attribute exists before saving
+        if hasattr(UserProfile, 'prsi_years'):
+            save_user_profile(user_id, "prsi_years", prsi_years)
+            logger.debug(f"Saved PRSI years '{prsi_years}' from detailed message for user_id: {user_id}")
+        else:
+            logger.warning("UserProfile model does not have 'prsi_years' attribute.")
+
+
+    # ADDED: Simpler regex to catch just numbers (e.g., user replies "13")
+    # You might want to add more context check here if possible (e.g., check last bot message)
+    # For now, this assumes a 1 or 2 digit number might be PRSI years if the other pattern failed.
+    # Be cautious as this could misinterpret other numbers.
+    elif re.fullmatch(r"\d{1,2}", msg.strip()): # Use re.fullmatch for exact match
+        # Potential improvement: Check if the last bot message asked for PRSI years
+        # For now, we save it if the number is reasonable (e.g., 0-60)
+        potential_years = int(msg.strip())
+        if 0 <= potential_years <= 60: # Basic sanity check for years
+            # Check if 'prsi_years' attribute exists before saving
+            if hasattr(UserProfile, 'prsi_years'):
+                save_user_profile(user_id, "prsi_years", potential_years)
+                logger.debug(f"Saved PRSI years '{potential_years}' from simple number reply for user_id: {user_id}")
+            else:
+                logger.warning("UserProfile model does not have 'prsi_years' attribute.")
+
 
 
 @app.post("/auth/google")

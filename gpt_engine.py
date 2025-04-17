@@ -136,6 +136,8 @@ Always prefer clarity and correctness over style.
 # Keep history limit reasonable to avoid exceeding token limits
 CHAT_HISTORY_LIMIT = 10 # Max number of past message pairs (user+assistant) to include
 
+# Inside gpt_engine.py
+
 def format_user_context(profile):
     """Formats the user profile into a string for the system prompt."""
     if not profile:
@@ -143,17 +145,20 @@ def format_user_context(profile):
     parts = []
     if profile.region: parts.append(f"Region: {profile.region}")
     if profile.age: parts.append(f"Age: {profile.age}")
-    # Format income with comma separators and appropriate currency symbol
     if profile.income:
         currency = '£' if profile.region == 'UK' else '€'
         parts.append(f"Income: {currency}{profile.income:,}")
     if profile.retirement_age: parts.append(f"Desired Retirement Age: {profile.retirement_age}")
     if profile.risk_profile: parts.append(f"Risk Tolerance: {profile.risk_profile}")
 
+    # ADDED: Include PRSI years if available
+    if hasattr(profile, 'prsi_years') and profile.prsi_years is not None:
+         parts.append(f"PRSI Contribution Years: {profile.prsi_years}")
+
+
     if not parts:
         return "User Profile: No specific details stored in profile yet."
 
-    # Return a clear summary string
     return "User Profile Summary: " + "; ".join(parts)
 
 def get_gpt_response(user_input, user_id, tone=""):

@@ -15,6 +15,7 @@ class UserProfile(Base):
     income = Column(Integer)
     retirement_age = Column(Integer)
     risk_profile = Column(String)
+    prsi_years = Column(Integer) 
 
 class User(Base):
     __tablename__ = 'users'
