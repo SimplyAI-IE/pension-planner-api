@@ -1,14 +1,14 @@
 # --- gpt_engine.py ---
 from openai import OpenAI
-from memory import get_user_profile, get_chat_history # Added get_chat_history
+from memory import get_user_profile, get_chat_history
 from models import SessionLocal, User
 import os
-import logging # Added logging
+import logging
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Ensure API key is loaded (consider moving load_dotenv here if not already loaded globally)
+# Ensure API key is loaded
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -16,8 +16,6 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     logger.critical("OPENAI_API_KEY environment variable not set!")
-    # Depending on your setup, you might want to raise an error or exit
-    # raise ValueError("OPENAI_API_KEY not set")
 client = OpenAI(api_key=api_key)
 
 SYSTEM_PROMPT = """
@@ -43,7 +41,7 @@ Expert, patient, friendly, and clear. Adjust expressiveness according to tone.
   - Define terms simply: “PRSI contributions are like work credits that help you qualify for a pension.”
 
 - **Relatable Analogies:**
-  - Use only when helpful: “Your contributions are like building blocks...”
+  - Use only when helpful: “Your contributions are like building blocks…”
 
 - **Step-by-Step Calculations:**
   - Ireland (TCA):
@@ -94,17 +92,22 @@ Expert, patient, friendly, and clear. Adjust expressiveness according to tone.
   - Once you have BOTH Region and Contribution Years (from profile or recent history), estimate the pension immediately using the calculation steps. Do not ask for them again unless the user provides new information or asks for a recalculation.
   - Include future projection if relevant (e.g., age provided).
 
+- **Affirmative Response to Tips Offer:**
+  - If your last message offered tips (e.g., contained 'Would you like tips' or 'boost your pension?') and the user's current input is an affirmative response (e.g., 'Yes', 'Sure', 'Okay'), immediately provide 2-3 actionable tips to improve their pension based on their region and profile. Do NOT ask for PRSI/NI years again or repeat the pension calculation unless explicitly requested.
+  - Example tips for Ireland: Continue working to reach 40 years, make voluntary contributions, check for credits (e.g., HomeCaring Periods), consider private pensions.
+  - Example tips for UK: Work additional years toward 35, check for NI credits, explore private pension options.
+  - After providing tips, ask a follow-up question like: "Does that make sense?" or "Would you like more details on any of these?"
+
 - **Improving Pension / Offering Tips:**
   - After providing a pension estimate, offer tips (e.g., "Would you like tips on how to boost your pension?").
   - If the user responds affirmatively (e.g., "sure", "yes please"), provide 2-3 actionable tips relevant to their region (e.g., continue working, voluntary contributions, check for credits, consider private pensions).
-  - **Crucially:** After providing tips, DO NOT re-ask for PRSI/NI years or re-calculate the pension unless the user explicitly asks you to recalculate with new numbers. Engage naturally, perhaps asking "Does that make sense?" or "Do you have questions about these options?".
+  - After providing tips, DO NOT re-ask for PRSI/NI years or re-calculate the pension unless the user explicitly asks you to recalculate with new numbers. Engage naturally, perhaps asking "Does that make sense?" or "Do you have questions about these options?".
 
 ---
 
 ### 📌 Boundaries:
 - Never ask for PPSN or NI numbers.
 - Link to official sites for personal info (e.g., MyWelfare.ie, GOV.UK).
-- If the user responds affirmatively after a tips offer, give the tips. Do not ask for PRSI years again unless they contradict earlier info or ask for a recalculation.
 - Provide information, not regulated financial advice. Recommend speaking to a licensed advisor.
 
 ---
@@ -128,14 +131,9 @@ Use `{{tone_instruction}}` to adjust formality, encouragement, analogies.
 Always prefer clarity and correctness over style.
 """
 
-
-# Keep history limit reasonable to avoid exceeding token limits
-CHAT_HISTORY_LIMIT = 10 # Max number of past message pairs (user+assistant) to include
-
-# Inside gpt_engine.py
+CHAT_HISTORY_LIMIT = 10
 
 def format_user_context(profile):
-    """Formats the user profile into a string for the system prompt."""
     if not profile:
         return "User Profile: No profile information stored yet."
     parts = []
@@ -146,11 +144,8 @@ def format_user_context(profile):
         parts.append(f"Income: {currency}{profile.income:,}")
     if profile.retirement_age: parts.append(f"Desired Retirement Age: {profile.retirement_age}")
     if profile.risk_profile: parts.append(f"Risk Tolerance: {profile.risk_profile}")
-
-    # ADDED: Include PRSI years if available
     if hasattr(profile, 'prsi_years') and profile.prsi_years is not None:
-         parts.append(f"PRSI Contribution Years: {profile.prsi_years}")
-
+        parts.append(f"PRSI Contribution Years: {profile.prsi_years}")
 
     if not parts:
         return "User Profile: No specific details stored in profile yet."
@@ -158,37 +153,28 @@ def format_user_context(profile):
     return "User Profile Summary: " + "; ".join(parts)
 
 def get_gpt_response(user_input, user_id, tone=""):
-    """Generates a response from OpenAI GPT based on user input, profile, and chat history."""
     logger.info(f"get_gpt_response called for user_id: {user_id}")
     profile = get_user_profile(user_id)
-    # Load full user details (for name)
     db = SessionLocal()
     user = db.query(User).filter(User.id == user_id).first()
     db.close()
     name = user.name if user and user.name else "there"
 
-    # Handle initial message - no history retrieval needed here
     if user_input.strip() == "__INIT__":
         logger.info(f"Handling __INIT__ message for user_id: {user_id}")
         if profile:
             summary = format_user_context(profile)
-            # More engaging welcome back message
             return f"Welcome back, {name}! It's good to see you again. Just to refresh, here's what I remember: {summary}. How can I assist you today?"
         else:
-            # Welcoming message for new or unknown users
             return (
                 f"Hello {name}, I'm Pension Guru, here to help with your retirement planning. "
                 "To get started and give you the most relevant information, could you let me know if you're primarily based in the UK or Ireland?"
             )
 
-    # --- Regular Chat Flow ---
     logger.info(f"Processing regular message for user_id: {user_id}")
-
-    # 1. Retrieve recent chat history
     history = get_chat_history(user_id, limit=CHAT_HISTORY_LIMIT)
     logger.debug(f"Retrieved {len(history)} messages from history for user_id: {user_id}")
 
-    # 2. Format profile summary for system prompt context
     profile_summary = format_user_context(profile)
     tone_instruction = ""
     if tone == "7":
@@ -206,42 +192,28 @@ def get_gpt_response(user_input, user_id, tone=""):
 
     logger.debug(f"Formatted profile summary: {profile_summary}")
 
-
-    # 3. Construct messages for OpenAI API
     messages = [{"role": "system", "content": system_message}]
-
-    # Add historical messages (if any)
     for msg in history:
         if msg["role"] in ['user', 'assistant']:
             messages.append(msg)
         else:
             logger.warning(f"Skipping history message with invalid role '{msg['role']}' for user_id: {user_id}")
 
-
-
-    # Add the current user input
     messages.append({"role": "user", "content": user_input})
-    # logger.debug(f"Messages prepared for OpenAI API: {messages}") # Be careful logging this - can be verbose
 
-    # 4. Call OpenAI API
     try:
         logger.info(f"Calling OpenAI API for user_id: {user_id}...")
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", # Consider GPT-4 Turbo if available/needed
+            model="gpt-3.5-turbo",
             messages=messages,
-            temperature=0.7 # Adjust temperature for creativity vs predictability
+            temperature=0.7
         )
         reply = response.choices[0].message.content
         logger.info(f"OpenAI API call successful for user_id: {user_id}")
-        logger.debug(f"OpenAI Response: {reply}") # Log the response text
+        logger.debug(f"OpenAI Response: {reply}")
     except Exception as e:
         logger.error(f"Error calling OpenAI API for user_id {user_id}: {e}", exc_info=True)
-        # Provide a user-friendly error message
         reply = "I'm sorry, but I encountered a technical difficulty while processing your request. Please try again in a few moments."
-
-
-    # Don't save here — handled in main.py
-
 
     return reply
 # --- End of gpt_engine.py ---

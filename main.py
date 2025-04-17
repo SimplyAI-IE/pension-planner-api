@@ -3,23 +3,21 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from gpt_engine import get_gpt_response
-# Ensure get_user_profile is imported if not already implicitly available via memory import
-from memory import get_user_profile, save_user_profile, save_chat_message
-from models import init_db, User, SessionLocal, UserProfile, ChatHistory # Import all needed models
+from memory import get_user_profile, save_user_profile, save_chat_message, get_chat_history
+from models import init_db, User, SessionLocal, UserProfile, ChatHistory
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from weasyprint import HTML # Ensure WeasyPrint is installed
+from weasyprint import HTML
 from io import BytesIO
 import re
 import logging
 import os
-from typing import Optional # Import Optional for type hinting if needed
+from typing import Optional
 
 os.environ["G_MESSAGES_DEBUG"] = ""
 
 # Configure logging
-# Consider increasing level to INFO for debugging state changes if needed
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -29,7 +27,7 @@ app = FastAPI()
 # Allow CORS so frontend can connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Consider changing to your frontend URL for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,15 +35,13 @@ app.add_middleware(
 
 # Create DB table(s)
 logger.info("Initializing database...")
-# IMPORTANT: Ensure this runs correctly and includes the new pending_action column
-# Remember to delete memory.db and run `python init_db.py` if you changed models.py
 init_db()
 logger.info("Database initialized.")
 
 class ChatRequest(BaseModel):
     user_id: str
     message: str
-    tone: str = ""  # Optional tone setting
+    tone: str = ""
 
 # Set of affirmative responses for state checking
 affirmative_responses = {"sure", "yes", "ok", "okay", "fine", "yep", "please", "yes please"}
@@ -54,7 +50,7 @@ affirmative_responses = {"sure", "yes", "ok", "okay", "fine", "yep", "please", "
 async def chat(req: ChatRequest):
     user_id = req.user_id
     user_message = req.message.strip()
-    user_message_lower = user_message.lower() # For case-insensitive checks
+    user_message_lower = user_message.lower()
     logger.info(f"Received chat request from user_id: {user_id}, message: '{user_message}'")
 
     # --- Handle __INIT__ separately ---
@@ -62,8 +58,6 @@ async def chat(req: ChatRequest):
     if is_special_command:
         logger.info(f"Handling __INIT__ command for user_id: {user_id}")
         reply = get_gpt_response(user_message, user_id, tone=req.tone)
-        # Don't save __INIT__ commands or their immediate response to history usually
-        # Also don't set pending_action based on init response
         return {"response": reply}
 
     if not user_message:
@@ -74,7 +68,6 @@ async def chat(req: ChatRequest):
     profile = get_user_profile(user_id)
     give_tips_directly = False
     # Check if profile exists and has the pending_action attribute
-    # Ensure profile exists and has pending_action before checking its value
     if profile and hasattr(profile, 'pending_action') and profile.pending_action == "offer_tips":
         logger.info(f"User {user_id} has pending_action 'offer_tips'. Checking response: '{user_message_lower}'")
         # Clear the pending action immediately after checking it
@@ -86,14 +79,26 @@ async def chat(req: ChatRequest):
             give_tips_directly = True
         else:
             logger.info(f"User {user_id} did not give affirmative response to tips offer. Proceeding normally.")
-            # If user said something else (e.g., asked another question), let the normal flow handle it
+    else:
+        # Fallback: Check chat history for recent tips offer
+        history = get_chat_history(user_id, limit=2)  # Check last 2 messages (bot's offer + user's response)
+        offer_keywords = [
+            "would you like tips",
+            "improve your pension?",
+            "boost your pension",  # Broadened to catch variations
+            "increase your pension?"
+        ]
+        if (history and len(history) >= 2 and
+            any(keyword in history[-2]["content"].lower() for keyword in offer_keywords) and
+            user_message_lower in affirmative_responses):
+            logger.info(f"Detected affirmative response to tips offer in history for user {user_id}")
+            give_tips_directly = True
 
     # --- Direct Tips Response (if triggered) ---
     if give_tips_directly:
-        reply = "" # Initialize reply
+        reply = ""
         try:
             logger.info(f"Generating direct tips response for user {user_id}")
-            # Using a predefined response for reliability:
             reply = (
                 "Great! Here are a few common ways people in Ireland can look into boosting their State Pension:\n\n"
                 "1.  **Keep Contributing:** Working and paying PRSI for the full 40 years generally leads to the maximum pension.\n"
@@ -102,19 +107,14 @@ async def chat(req: ChatRequest):
                 "Does that make sense? It's always best to check your personal record on MyWelfare.ie or consult with Citizens Information or a financial advisor for advice tailored to you."
             )
             logger.info(f"Generated predefined tips for user {user_id}")
-
         except Exception as e:
-             logger.error(f"Error generating tips directly for user {user_id}: {e}", exc_info=True)
-             # Fallback reply if generation fails
-             reply = "Okay, I can definitely give you tips. Generally, working longer, making voluntary contributions if eligible, or checking for credits can help boost your State Pension. Checking MyWelfare.ie is a good starting point."
+            logger.error(f"Error generating tips directly for user {user_id}: {e}", exc_info=True)
+            reply = "Okay, I can definitely give you tips. Generally, working longer, making voluntary contributions if eligible, or checking for credits can help boost your State Pension. Checking MyWelfare.ie is a good starting point."
 
         # Save the user message ("sure") and the direct tips reply
         save_chat_message(user_id, 'user', user_message)
-        if reply: # Ensure reply is not None before saving
-             save_chat_message(user_id, 'assistant', reply)
-        # Save messages for this direct tips path
-        save_chat_message(user_id, 'user', user_message)
-        save_chat_message(user_id, 'assistant', reply)
+        if reply:
+            save_chat_message(user_id, 'assistant', reply)
         return {"response": reply}
 
     # --- Standard Chat Flow (if not handling tips directly) ---
@@ -123,51 +123,51 @@ async def chat(req: ChatRequest):
     # Extract data (only if not a special command/state handled above)
     try:
         extract_user_data(user_id, user_message)
-        # Re-fetch profile in case extract_user_data modified it and we need updated state below
         profile = get_user_profile(user_id)
     except Exception as e:
         logger.error(f"Error extracting data for user {user_id}: {e}", exc_info=True)
 
     # Get the reply from the AI
-    reply = "" # Initialize reply
+    reply = ""
     try:
         reply = get_gpt_response(user_message, user_id, tone=req.tone)
         logger.info(f"GPT response generated successfully for user_id: {user_id}")
     except Exception as e:
         logger.error(f"Error getting GPT response for user {user_id}: {e}", exc_info=True)
-        # Provide a fallback message instead of raising HTTPException
         reply = "I'm sorry, I encountered a technical issue trying to process that. Could you try rephrasing?"
-        # Log the error but allow flow to continue to save messages
 
     # Save user message and assistant reply to history
     save_chat_message(user_id, 'user', user_message)
-    if reply: # Ensure reply is not None or empty before saving
+    if reply:
         save_chat_message(user_id, 'assistant', reply)
 
     # --- State Setting Logic ---
     # Check if the *newly generated* reply offers tips, set pending_action if so
-    # Ensure profile exists and has the pending_action attribute before trying to set it
     if profile and hasattr(profile, 'pending_action'):
-        # Keywords to check for in the bot's reply to see if it's offering tips
-        offer_keywords = ["would you like tips", "improve your pension?", "boost your pension?"]
+        # Updated offer_keywords for better detection
+        offer_keywords = [
+            "would you like tips",
+            "improve your pension?",
+            "boost your pension",  # Broadened to catch variations
+            "increase your pension?"
+        ]
+        # Alternative: Use regex for more flexible matching
+        offer_patterns = [
+            r"would you like tips",
+            r"improve your pension\?",
+            r"boost your pension.*\?",  # Match variations like "boost your pension further?"
+            r"increase your pension\?"
+        ]
         reply_lower = reply.lower() if reply else ""
-
-        if any(keyword in reply_lower for keyword in offer_keywords):
+        if any(re.search(pattern, reply_lower) for pattern in offer_patterns):
             logger.info(f"Bot offered tips to user {user_id}. Setting pending_action='offer_tips'.")
             save_user_profile(user_id, "pending_action", "offer_tips")
-        # No 'else' here - we only clear the flag when the user responds to the offer (handled at the top)
     elif profile and not hasattr(profile, 'pending_action'):
         logger.warning(f"Profile for user {user_id} exists but missing 'pending_action' attribute. Cannot set state.")
-    # else: # Profile doesn't exist, log warning? Maybe handled by get_user_profile returning None
-        # logger.warning(f"Profile not found for user {user_id}. Cannot set pending_action state.")
-
 
     return {"response": reply}
 
-
 def extract_user_data(user_id, msg):
-    # Check if UserProfile model itself has the attributes - requires access to model definition
-    # This is more complex, rely on save_user_profile handling errors for now or add checks within save_user_profile
     logger.debug(f"Extracting data from message for user_id: {user_id}")
     msg_lower = msg.lower()
     profile_updated = False
@@ -184,16 +184,16 @@ def extract_user_data(user_id, msg):
 
     # Age Extraction
     age_match = re.search(r"\b(\d{1,2})\s*(?:years?)?\s*old\b", msg_lower)
-    if age_match: # Removed hasattr check here, assume save_user_profile handles it
+    if age_match:
         age = int(age_match.group(1))
         if 18 <= age <= 100:
-             save_user_profile(user_id, "age", age)
-             logger.debug(f"Saved age '{age}' for user_id: {user_id}")
-             profile_updated = True
+            save_user_profile(user_id, "age", age)
+            logger.debug(f"Saved age '{age}' for user_id: {user_id}")
+            profile_updated = True
 
     # Income Extraction
     income_match = re.search(r"\b(?:€|£)\s?(\d{1,3}(?:,\d{3})*|\d+)\s?([kK]?)\b", msg.replace(",", ""))
-    if income_match: # Removed hasattr check
+    if income_match:
         income_val = int(income_match.group(1))
         if income_match.group(2).lower() == 'k':
             income_val *= 1000
@@ -203,7 +203,7 @@ def extract_user_data(user_id, msg):
 
     # Retirement Age Extraction
     retirement_match = re.search(r"\b(?:retire|retirement)\b.*?\b(\d{2})\b", msg_lower)
-    if retirement_match: # Removed hasattr check
+    if retirement_match:
         ret_age = int(retirement_match.group(1))
         if 50 <= ret_age <= 80:
             save_user_profile(user_id, "retirement_age", ret_age)
@@ -211,7 +211,7 @@ def extract_user_data(user_id, msg):
             profile_updated = True
 
     # Risk Profile Extraction
-    if "risk" in msg_lower: # Removed hasattr check
+    if "risk" in msg_lower:
         if "low" in msg_lower:
             save_user_profile(user_id, "risk_profile", "Low")
             logger.debug(f"Saved risk profile 'Low' for user_id: {user_id}")
@@ -226,8 +226,6 @@ def extract_user_data(user_id, msg):
             profile_updated = True
 
     # PRSI Contributions Extraction
-    # Relying on save_user_profile to handle potential missing 'prsi_years' attribute gracefully,
-    # or assuming models.py is updated correctly.
     prsi_match = re.search(r"(\d{1,2})\s+(?:years?|yrs?)\s+(?:of\s+)?(?:prsi|contributions?)", msg_lower)
     if prsi_match:
         prsi_years = int(prsi_match.group(1))
@@ -237,29 +235,24 @@ def extract_user_data(user_id, msg):
     elif re.fullmatch(r"\d{1,2}", msg.strip()):
         potential_years = int(msg.strip())
         if 0 <= potential_years <= 60:
-             # Consider adding context check here (e.g., was last bot msg asking for PRSI?)
-             save_user_profile(user_id, "prsi_years", potential_years)
-             logger.debug(f"Saved PRSI years '{potential_years}' from simple number reply for user_id: {user_id}")
-             profile_updated = True
-
+            save_user_profile(user_id, "prsi_years", potential_years)
+            logger.debug(f"Saved PRSI years '{potential_years}' from simple number reply for user_id: {user_id}")
+            profile_updated = True
 
     if profile_updated:
         logger.info(f"Profile data potentially updated for user_id: {user_id}")
 
-
 @app.post("/auth/google")
 async def auth_google(user_data: dict):
     if not user_data or "sub" not in user_data:
-         logger.error("Invalid user data received in /auth/google")
-         raise HTTPException(status_code=400, detail="Invalid user data received")
+        logger.error("Invalid user data received in /auth/google")
+        raise HTTPException(status_code=400, detail="Invalid user data received")
 
     user_id = user_data["sub"]
     logger.info(f"Processing Google auth for user_id: {user_id}")
     db = SessionLocal()
     try:
-        # Check if user exists
         user = db.query(User).filter(User.id == user_id).first()
-        # Check if profile exists separately
         profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
 
         if not user:
@@ -270,21 +263,19 @@ async def auth_google(user_data: dict):
                 email=user_data.get("email")
             )
             db.add(user)
-            # Create profile only if it doesn't exist
             if not profile:
-                profile = UserProfile(user_id=user_id) # Initialize profile
+                profile = UserProfile(user_id=user_id)
                 db.add(profile)
             db.commit()
             db.refresh(user)
             logger.info(f"Successfully created user and profile entry for user_id: {user_id}")
         else:
-             logger.info(f"Existing user found for user_id: {user_id}")
-             # Ensure profile exists if user exists but profile might be missing
-             if not profile:
-                 logger.warning(f"Existing user {user_id} found, but profile missing. Creating profile.")
-                 profile = UserProfile(user_id=user_id)
-                 db.add(profile)
-                 db.commit()
+            logger.info(f"Existing user found for user_id: {user_id}")
+            if not profile:
+                logger.warning(f"Existing user {user_id} found, but profile missing. Creating profile.")
+                profile = UserProfile(user_id=user_id)
+                db.add(profile)
+                db.commit()
 
     except Exception as e:
         db.rollback()
@@ -295,11 +286,9 @@ async def auth_google(user_data: dict):
 
     return {"status": "ok", "user_id": user_id}
 
-
 @app.get("/")
 async def root():
     return {"message": "Pension Planner API is running"}
-
 
 @app.get("/export-pdf")
 async def export_pdf(user_id: str):
@@ -319,29 +308,22 @@ async def export_pdf(user_id: str):
         )
     except Exception as e:
         logger.error(f"Failed to retrieve chat history for PDF export for user {user_id}: {e}")
-        # Continue with empty messages list
     finally:
         db.close()
 
-    # Helper function for safe attribute access in f-string
     def safe_get(obj, attr, default="—"):
         val = getattr(obj, attr, None)
-        # Ensure numeric zero is displayed, not '—'
         return val if val is not None else default
 
-    # Safely format income with currency
     income_str = "—"
-    # Check attribute exists on the *instance* before accessing
     if hasattr(profile, 'income') and profile.income is not None:
-         # Check region on the instance too
-         region = getattr(profile, 'region', None)
-         currency = '£' if region == 'UK' else '€' # Default to € if region unknown/None
-         try:
-             income_str = f"{currency}{profile.income:,}"
-         except (TypeError, ValueError): # Catch if income is not number like
-             income_str = f"{currency}{profile.income}"
+        region = getattr(profile, 'region', None)
+        currency = '£' if region == 'UK' else '€'
+        try:
+            income_str = f"{currency}{profile.income:,}"
+        except (TypeError, ValueError):
+            income_str = f"{currency}{profile.income}"
 
-    # Build content safely
     profile_text = f"""
     <h1>Pension Plan Summary</h1>
     <h2>User Info</h2>
@@ -354,14 +336,13 @@ async def export_pdf(user_id: str):
       <li>PRSI Years: {safe_get(profile, 'prsi_years')}</li>
       <li>Pending Action: {safe_get(profile, 'pending_action')}</li>
     </ul>
-    """ # Added pending_action for debugging in PDF
+    """
 
     chat_log = "<h2>Chat History</h2><ul>"
     if messages:
         for m in messages:
             role = "You" if m.role == "user" else "Pension Guru"
-            # Basic HTML escaping for content
-            content = getattr(m, 'content', '') or '' # Ensure content is a string
+            content = getattr(m, 'content', '') or ''
             content_escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             chat_log += f"<li><strong>{role}:</strong> {content_escaped}</li>"
     else:
@@ -370,13 +351,11 @@ async def export_pdf(user_id: str):
 
     pdf_buffer = BytesIO()
     try:
-        # Ensure WeasyPrint is installed and working
         html = HTML(string=profile_text + chat_log)
         html.write_pdf(pdf_buffer)
         pdf_buffer.seek(0)
     except Exception as e:
         logger.error(f"Error generating PDF for user {user_id}: {e}", exc_info=True)
-        # Consider what error to return to the user
         raise HTTPException(status_code=500, detail="Failed to generate PDF report.")
 
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={
@@ -392,14 +371,10 @@ async def forget_chat_history(request: Request):
 
     db = SessionLocal()
     try:
-        # Use synchronize_session=False for potentially faster deletes if cascading isn't needed
         deleted_chats = db.query(ChatHistory).filter(ChatHistory.user_id == user_id).delete(synchronize_session=False)
         logger.info(f"Deleted {deleted_chats} chat messages for user_id: {user_id}")
-
-        # Delete profile
         deleted_profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).delete(synchronize_session=False)
         logger.info(f"Deleted {deleted_profile} profile entries for user_id: {user_id}")
-
         db.commit()
         logger.info(f"Successfully cleared chat history and profile for user_id: {user_id}")
     except Exception as e:
@@ -410,5 +385,4 @@ async def forget_chat_history(request: Request):
         db.close()
 
     return {"status": "ok", "message": "Chat history and profile cleared."}
-
 # --- End of main.py ---

@@ -1,6 +1,10 @@
 # --- memory.py ---
 from models import UserProfile, ChatHistory, SessionLocal
 from sqlalchemy import desc
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 def get_user_profile(user_id):
     db = SessionLocal()
@@ -16,23 +20,26 @@ def save_user_profile(user_id, field, value):
         profile = UserProfile(user_id=user_id)
         db.add(profile)
 
-    # Only update if value is not None and not blank
-    if value is not None: # Check specifically for None, allow 0 or empty strings if needed
+    if value is not None:
+        if not hasattr(profile, field):
+            logger.error(f"Field '{field}' does not exist in UserProfile for user {user_id}")
+            db.close()
+            return
         setattr(profile, field, value)
 
     try:
         db.commit()
+        logger.debug(f"Saved {field}='{value}' for user {user_id}")
     except Exception as e:
-        print(f"Database error saving profile for {user_id}: {e}")
+        logger.error(f"Database error saving profile for {user_id}: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()
 
-# New function to save a message to history
 def save_chat_message(user_id, role, content):
     if not user_id or not role or not content:
-        print(f"Warning: Attempted to save incomplete chat message for user {user_id}. Role: {role}, Content: '{content}'")
-        return # Avoid saving empty/incomplete messages
+        logger.warning(f"Attempted to save incomplete chat message for user {user_id}. Role: {role}, Content: '{content}'")
+        return
 
     db = SessionLocal()
     message = ChatHistory(
@@ -44,30 +51,25 @@ def save_chat_message(user_id, role, content):
     try:
         db.commit()
     except Exception as e:
-        print(f"Database error saving chat message for {user_id}: {e}")
+        logger.error(f"Database error saving chat message for {user_id}: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()
 
-# New function to retrieve chat history
 def get_chat_history(user_id, limit=10):
-    """Retrieves the most recent 'limit' messages for a user, oldest first."""
     if not user_id:
         return []
     db = SessionLocal()
     try:
-        # Fetch the last 'limit' messages ordered by timestamp descending,
-        # then reverse the list so they are in chronological order for the API.
         history = db.query(ChatHistory)\
                     .filter(ChatHistory.user_id == user_id)\
                     .order_by(desc(ChatHistory.timestamp))\
                     .limit(limit)\
                     .all()
     except Exception as e:
-        print(f"Database error retrieving chat history for {user_id}: {e}")
-        history = [] # Return empty list on error
+        logger.error(f"Database error retrieving chat history for {user_id}: {e}", exc_info=True)
+        history = []
     finally:
         db.close()
     return [{"role": m.role, "content": m.content} for m in history[::-1]]
-# Reverse to get chronological order (oldest first)
 # --- End of memory.py ---
