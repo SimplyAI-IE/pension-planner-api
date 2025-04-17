@@ -20,7 +20,7 @@ os.environ["G_MESSAGES_DEBUG"] = ""
 
 # Configure logging
 # Consider increasing level to INFO for debugging state changes if needed
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -112,6 +112,9 @@ async def chat(req: ChatRequest):
         save_chat_message(user_id, 'user', user_message)
         if reply: # Ensure reply is not None before saving
              save_chat_message(user_id, 'assistant', reply)
+        # Save messages for this direct tips path
+        save_chat_message(user_id, 'user', user_message)
+        save_chat_message(user_id, 'assistant', reply)
         return {"response": reply}
 
     # --- Standard Chat Flow (if not handling tips directly) ---
