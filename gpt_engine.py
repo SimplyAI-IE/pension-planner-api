@@ -9,8 +9,8 @@ import logging # Added logging
 logger = logging.getLogger(__name__)
 
 # Ensure API key is loaded (consider moving load_dotenv here if not already loaded globally)
-# from dotenv import load_dotenv
-# load_dotenv()
+from dotenv import load_dotenv
+load_dotenv()
 
 # Check if API key is available
 api_key = os.getenv("OPENAI_API_KEY")
