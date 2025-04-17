@@ -54,8 +54,7 @@ async def chat(req: ChatRequest):
     logger.info(f"Received chat request from user_id: {user_id}, message: '{user_message}'")
 
     # --- Handle __INIT__ separately ---
-    is_special_command = user_message == "__INIT__"
-    if is_special_command:
+    if user_message == "__INIT__":
         logger.info(f"Handling __INIT__ command for user_id: {user_id}")
         reply = get_gpt_response(user_message, user_id, tone=req.tone)
         return {"response": reply}
@@ -65,7 +64,21 @@ async def chat(req: ChatRequest):
         logger.warning(f"Received empty message from user_id: {user_id}")
         profile = get_user_profile(user_id)
         history = get_chat_history(user_id, limit=2)
-        if (profile and hasattr(profile, 'prsi_years') and profile.prsi_years is not None and
+        if (profile and hasattr(profile, 'pending_action') and profile.pending_action == "offer_tips" or
+                (history and len(history) >= 2 and any(keyword in history[-2]["content"].lower() for keyword in [
+                    "would you like tips", "boost your pension", "improve your pension", "increase your pension"]))):
+            logger.info(f"Empty input after tips offer for user {user_id}. Delivering tips.")
+            save_user_profile(user_id, "pending_action", None)  # Clear pending action
+            reply = (
+                "Great! Here are a few ways to boost your State Pension in Ireland:\n\n"
+                "1. **Keep Contributing**: Work and pay PRSI for up to 40 years to maximize your pension.\n"
+                "2. **Voluntary Contributions**: Check gaps in your record on MyWelfare.ie and make voluntary contributions if eligible.\n"
+                "3. **Credits**: You may qualify for credits for periods like childcare or unemployment.\n\n"
+                "Does that make sense? Check MyWelfare.ie or consult a financial advisor for personalized advice."
+            )
+            save_chat_message(user_id, 'assistant', reply)
+            return {"response": reply}
+        elif (profile and hasattr(profile, 'prsi_years') and profile.prsi_years is not None and
                 history and len(history) >= 2 and "how many years of prsi contributions" in history[-2]["content"].lower()):
             logger.info(f"Empty input after PRSI question for user {user_id}. Using profile PRSI years: {profile.prsi_years}")
             reply = get_gpt_response(f"Calculate pension for {profile.prsi_years} PRSI years", user_id, tone=req.tone)
@@ -78,47 +91,34 @@ async def chat(req: ChatRequest):
     give_tips_directly = False
     if profile and hasattr(profile, 'pending_action') and profile.pending_action == "offer_tips":
         logger.info(f"User {user_id} has pending_action 'offer_tips'. Checking response: '{user_message_lower}'")
-        save_user_profile(user_id, "pending_action", None)
-        logger.info(f"Cleared pending_action for user {user_id}")
         if user_message_lower in affirmative_responses:
-            logger.info(f"User {user_id} confirmed wanting tips. Handling directly.")
+            logger.info(f"User {user_id} confirmed wanting tips. Delivering tips.")
             give_tips_directly = True
         else:
-            logger.info(f"User {user_id} did not give affirmative response to tips offer. Proceeding normally.")
-    else:
+            logger.info(f"User {user_id} did not confirm tips. Clearing pending_action to reset state.")
+            save_user_profile(user_id, "pending_action", None)  # Clear if non-affirmative to avoid looping
+    elif profile:  # Only check history if no pending_action to avoid redundant checks
         history = get_chat_history(user_id, limit=2)
-        offer_keywords = [
-            "would you like tips",
-            "improve your pension?",
-            "boost your pension",
-            "increase your pension?"
-        ]
         if (history and len(history) >= 2 and
-                any(keyword in history[-2]["content"].lower() for keyword in offer_keywords) and
+                any(keyword in history[-2]["content"].lower() for keyword in [
+                    "would you like tips", "boost your pension", "improve your pension", "increase your pension"]) and
                 user_message_lower in affirmative_responses):
             logger.info(f"Detected affirmative response to tips offer in history for user {user_id}")
             give_tips_directly = True
 
     # --- Direct Tips Response ---
     if give_tips_directly:
-        reply = ""
-        try:
-            logger.info(f"Generating direct tips response for user {user_id}")
-            reply = (
-                "Great! Here are a few common ways people in Ireland can look into boosting their State Pension:\n\n"
-                "1. **Keep Contributing**: Working and paying PRSI for the full 40 years generally leads to the maximum pension.\n"
-                "2. **Check for Gaps & Voluntary Contributions**: If you have gaps in your record (e.g., time abroad or not working), see if you're eligible to make voluntary contributions to fill them. You can check this on MyWelfare.ie.\n"
-                "3. **Look into Credits**: Certain periods, like time spent caring for children or incapacitated individuals (HomeCaring Periods), or receiving some social welfare payments, might entitle you to credits that count towards your pension.\n\n"
-                "Does that make sense? It's always best to check your personal record on MyWelfare.ie or consult with Citizens Information or a financial advisor for advice tailored to you."
-            )
-            logger.info(f"Generated predefined tips for user {user_id}")
-        except Exception as e:
-            logger.error(f"Error generating tips directly for user {user_id}: {e}", exc_info=True)
-            reply = "Okay, I can definitely give you tips. Generally, working longer, making voluntary contributions if eligible, or checking for credits can help boost your State Pension. Checking MyWelfare.ie is a good starting point."
-
+        reply = (
+            "Great! Here are a few ways to boost your State Pension in Ireland:\n\n"
+            "1. **Keep Contributing**: Work and pay PRSI for up to 40 years to maximize your pension.\n"
+            "2. **Voluntary Contributions**: Check gaps in your record on MyWelfare.ie and make voluntary contributions if eligible.\n"
+            "3. **Credits**: You may qualify for credits for periods like childcare or unemployment.\n\n"
+            "Does that make sense? Check MyWelfare.ie or consult a financial advisor for personalized advice."
+        )
+        logger.info(f"Generated predefined tips for user {user_id}")
+        save_user_profile(user_id, "pending_action", None)  # Clear after delivering tips
         save_chat_message(user_id, 'user', user_message)
-        if reply:
-            save_chat_message(user_id, 'assistant', reply)
+        save_chat_message(user_id, 'assistant', reply)
         return {"response": reply}
 
     # --- Standard Chat Flow ---
@@ -332,7 +332,7 @@ async def export_pdf(user_id: str):
         for m in messages:
             role = "You" if m.role == "user" else "Pension Guru"
             content = getattr(m, 'content', '') or ''
-            content_escaped = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            content_escaped = content.replace("&", "&").replace("<", "<").replace(">", ">")
             chat_log += f"<li><strong>{role}:</strong> {content_escaped}</li>"
     else:
         chat_log += "<li>No chat history found.</li>"
