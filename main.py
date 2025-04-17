@@ -15,9 +15,12 @@ from models import ChatHistory
 from memory import get_user_profile
 import re
 import logging # Added logging
+import os
+
+os.environ["G_MESSAGES_DEBUG"] = ""
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -133,6 +136,14 @@ def extract_user_data(user_id, msg):
         elif "medium" in msg_lower or "moderate" in msg_lower:
             save_user_profile(user_id, "risk_profile", "Medium")
             logger.debug(f"Saved risk profile 'Medium' for user_id: {user_id}")
+
+    # PRSI Contributions Extraction (e.g., "12 years of PRSI")
+    prsi_match = re.search(r"(\d{1,2})\s+(?:years?|yrs?)\s+(?:of\s+)?(?:prsi|contributions?)", msg_lower)
+    if prsi_match:
+        prsi_years = int(prsi_match.group(1))
+        save_user_profile(user_id, "prsi_years", prsi_years)
+        logger.debug(f"Saved PRSI years '{prsi_years}' for user_id: {user_id}")
+
 
 @app.post("/auth/google")
 async def auth_google(user_data: dict):
